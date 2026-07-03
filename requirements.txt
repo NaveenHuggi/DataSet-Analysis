@@ -1,0 +1,29 @@
+# ── Core app ─────────────────────────────────────────────────
+streamlit>=1.35.0
+pandas>=2.1.0,<3.0.0
+numpy>=1.26.0,<2.0.0
+groq>=0.9.0
+python-dotenv>=1.0.0
+
+# ── EDA & profiling ──────────────────────────────────────────
+# Priority order: ydata-profiling > sweetviz > pandas (built-in fallback)
+ydata-profiling>=4.6.0
+sweetviz>=2.3.1        # optional lighter fallback
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.18.0
+
+# ── ML / Science (available in the Code Sandbox) ─────────────
+scikit-learn>=1.4.0
+scipy>=1.11.0
+
+# ── ydata-profiling transitive deps (pinned safe versions) ───
+statsmodels>=0.14.0
+phik>=0.12.3
+visions>=0.7.5
+multimethod>=1.9
+typeguard>=4.0.0
+htmlmin>=0.1.12
+jinja2>=3.1.0
+tqdm>=4.65.0
+pydantic>=2.0.0

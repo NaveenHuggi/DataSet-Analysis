@@ -397,6 +397,5 @@ The `.gitignore` already excludes `backend/.env` so your API key is never commit
 
 ---
 
-## License
-
-MIT
+## 📜 License
+This project is licensed under the MIT License.

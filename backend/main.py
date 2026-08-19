@@ -24,14 +24,15 @@ from groq import Groq
 ENV_FILE = Path(__file__).parent / ".env"
 load_dotenv(ENV_FILE)
 
-ANALYSIS_MODEL    = "llama-3.3-70b-versatile"
-CHAT_MODEL_DEFAULT = "llama-3.1-8b-instant"
+ANALYSIS_MODEL     = "openai/gpt-oss-120b"
+CHAT_MODEL_DEFAULT = "openai/gpt-oss-20b"
 
 AVAILABLE_MODELS = [
-    {"id": "llama-3.1-8b-instant",    "label": "Llama 3.1 8B",  "note": "Fastest"},
-    {"id": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B", "note": "Most Powerful"},
-    {"id": "gemma2-9b-it",            "label": "Gemma 2 9B",    "note": "Balanced"},
-    {"id": "mixtral-8x7b-32768",      "label": "Mixtral 8x7B",  "note": "Long Context"},
+    {"id": "openai/gpt-oss-20b",  "label": "GPT-OSS 20B",   "note": "Fast"},
+    {"id": "openai/gpt-oss-120b", "label": "GPT-OSS 120B",  "note": "Most Powerful"},
+    {"id": "qwen/qwen3.6-27b",    "label": "Qwen 3.6 27B",  "note": "Balanced"},
+    {"id": "gemma2-9b-it",        "label": "Gemma 2 9B",    "note": "Lightweight"},
+    {"id": "mixtral-8x7b-32768",  "label": "Mixtral 8x7B",  "note": "Long Context"},
 ]
 
 SYSTEM_PROMPT = """You are an Automated AI Data Scientist and Machine Learning Mentor. Your purpose is to analyze dataset profiles and guide the user step-by-step through preprocessing and model training.
@@ -58,8 +59,14 @@ app = FastAPI(title="Dataset Analyser API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -153,7 +160,7 @@ def setup_api(req: SetupRequest):
     try:
         client = Groq(api_key=key)
         client.chat.completions.create(
-            model=CHAT_MODEL_DEFAULT,
+            model=ANALYSIS_MODEL,
             messages=[{"role": "user", "content": "hi"}],
             max_tokens=5,
         )
@@ -389,51 +396,104 @@ def chat_mentor(req: ChatRequest):
 class ExecuteRequest(BaseModel):
     code: str
 
+import builtins as _builtins_module
+import threading
+_matplotlib_lock = threading.Lock()
+
 @app.post("/api/execute")
 def execute_code(req: ExecuteRequest):
-    df = GLOBAL_STATE.get("df") or pd.DataFrame()
-
-    _scope = {
-        "df": df, "pd": pd, "np": np,
-        "plt": plt, "sns": sns,
-        "__builtins__": __builtins__,
-    }
-
-    stdout_capture = io.StringIO()
-    _error = None
-    plt.close("all")
-
     try:
-        with contextlib.redirect_stdout(stdout_capture):
-            exec(compile(req.code, "<sandbox>", "exec"), _scope)
-    except Exception:
-        _error = traceback.format_exc()
+        df = GLOBAL_STATE.get("df")
+        if df is None:
+            df = pd.DataFrame()
 
-    stdout_text = stdout_capture.getvalue()
+        # Captured figures list (populated by patched plt.show)
+        _captured_figs: list = []
 
-    # Auto-eval last expression if no output
-    if not _error and not stdout_text:
-        lines = [l for l in req.code.strip().splitlines() if l.strip()]
-        if lines:
+        # Patch plt.show so it captures the current figure instead of
+        # trying to open a GUI window (which would crash on the Agg backend).
+        def _show_patch(*args, **kwargs):
+            for num in plt.get_fignums():
+                _captured_figs.append(plt.figure(num))
+
+        # Build execution scope with explicit builtins dict (not the module
+        # object) to avoid TypeError in restricted interpreter contexts.
+        _scope = {
+            "__builtins__": vars(_builtins_module),
+            "df": df,
+            "pd": pd,
+            "np": np,
+            "plt": plt,
+            "sns": sns,
+        }
+
+        stdout_capture = io.StringIO()
+        _error = None
+
+        with _matplotlib_lock:
+            plt.close("all")
+            _figs_before = set(plt.get_fignums())
+
+            # Inject patched show
+            original_show = plt.show
+            plt.show = _show_patch
+            _scope["plt"] = plt
+
             try:
-                result = eval(compile(lines[-1], "<sandbox_eval>", "eval"), _scope)
-                if result is not None:
-                    if isinstance(result, pd.DataFrame):
-                        stdout_text = result.head(50).to_string()
-                    elif isinstance(result, pd.Series):
-                        stdout_text = result.head(50).to_frame().to_string()
-                    else:
-                        stdout_text = repr(result)
+                with contextlib.redirect_stdout(stdout_capture):
+                    exec(compile(req.code, "<sandbox>", "exec"), _scope)
             except Exception:
-                pass
+                _error = traceback.format_exc()
+            finally:
+                plt.show = original_show
 
-    figs = [plt.figure(n) for n in plt.get_fignums()]
-    base64_images = []
-    for fig in figs:
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
-        buf.seek(0)
-        base64_images.append(base64.b64encode(buf.read()).decode("utf-8"))
-        plt.close(fig)
+            stdout_text = stdout_capture.getvalue()
 
-    return {"stdout": stdout_text, "error": _error, "images": base64_images}
+            # Auto-eval last expression if no printed output yet
+            if not _error and not stdout_text:
+                lines = [ln for ln in req.code.strip().splitlines() if ln.strip()]
+                if lines:
+                    try:
+                        result = eval(
+                            compile(lines[-1], "<sandbox_eval>", "eval"), _scope
+                        )
+                        if result is not None:
+                            if isinstance(result, pd.DataFrame):
+                                stdout_text = result.head(50).to_string()
+                            elif isinstance(result, pd.Series):
+                                stdout_text = result.head(50).to_frame().to_string()
+                            else:
+                                stdout_text = repr(result)
+                    except Exception:
+                        pass
+
+            # Collect any figures that were created during exec (including
+            # ones added via patched plt.show)
+            _figs_after = set(plt.get_fignums())
+            new_fig_nums = _figs_after - _figs_before
+            extra_figs = [plt.figure(n) for n in sorted(new_fig_nums)]
+            all_figs = list({id(f): f for f in (_captured_figs + extra_figs)}.values())
+
+            base64_images = []
+            for fig in all_figs:
+                try:
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format="png", bbox_inches="tight", facecolor="white")
+                    buf.seek(0)
+                    base64_images.append(base64.b64encode(buf.read()).decode("utf-8"))
+                except Exception:
+                    pass
+                finally:
+                    plt.close(fig)
+
+        return {"stdout": stdout_text, "error": _error, "images": base64_images}
+
+    except Exception as exc:
+        # Catch any unexpected crash in the endpoint itself and return it
+        # as a normal JSON response rather than letting FastAPI emit a 500.
+        return {
+            "stdout": "",
+            "error": f"Sandbox internal error: {traceback.format_exc()}",
+            "images": [],
+        }
+

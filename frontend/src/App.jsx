@@ -7,7 +7,9 @@ import {
   Code, ChevronDown, Copy, X, Zap
 } from 'lucide-react';
 
-const API = 'http://localhost:8000/api';
+// Relative path — Vite dev-server proxy (vite.config.js) forwards /api/* to
+// http://localhost:8000. No CORS headers needed.
+const API = '/api';
 
 // ── Tiny helpers ──────────────────────────────────────────────────────────────
 function fmt(n) { return n?.toLocaleString() ?? '—'; }
@@ -197,7 +199,7 @@ function Sidebar({ activeTab, setActiveTab, hasDataset, backendOnline }) {
             <CheckCircle size={11} style={{ marginRight: 5 }} /> Dataset Loaded
           </div>
         )}
-        <div className="sidebar-model-tag">Groq · Llama 3</div>
+        <div className="sidebar-model-tag">Powered by Groq</div>
       </div>
     </aside>
   );
@@ -404,7 +406,7 @@ function AnalysisTab({
             </div>
           ) : (
             <p className="card-desc" style={{ margin: 0 }}>
-              Ask the AI for concrete, dataset-specific feature engineering ideas using Llama 3.3-70B.
+              Ask the AI for concrete, dataset-specific feature engineering ideas with Python code snippets.
             </p>
           )}
         </div>
@@ -425,8 +427,8 @@ function AnalysisTab({
           ) : (
             <>
               <p className="card-desc">
-                Run the Phase 1 analysis using Llama 3.3-70B. The AI will identify the problem type,
-                data health issues, and recommend models tailored to your dataset.
+                Run the Phase 1 analysis: the AI will identify the problem type, data health issues,
+                and recommend models tailored to your dataset.
               </p>
               <button className="btn btn-primary" onClick={handleRunAI} disabled={analyzing}>
                 {analyzing ? <><Spinner size={13} /> Analyzing...</> : <><Zap size={14} /> Run Phase 1 Analysis</>}
@@ -818,7 +820,34 @@ function ChatTab({ messages, setMessages, initialAnalysis, availableModels }) {
                   <span>{msg.content}</span>
                 ) : (
                   <>
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    <ReactMarkdown
+                    components={{
+                      // Tables — use the styled compare-table class
+                      table: ({ node, ...p }) => <table className="compare-table" style={{ marginTop: 10, marginBottom: 10 }} {...p} />,
+                      thead: ({ node, ...p }) => <thead {...p} />,
+                      tbody: ({ node, ...p }) => <tbody {...p} />,
+                      tr:    ({ node, ...p }) => <tr {...p} />,
+                      th:    ({ node, ...p }) => <th {...p} />,
+                      td:    ({ node, ...p }) => <td {...p} />,
+                      // Headings
+                      h1: ({ node, ...p }) => <h1 style={{ fontSize: 17, fontWeight: 700, marginTop: 18, marginBottom: 8, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 }} {...p} />,
+                      h2: ({ node, ...p }) => <h2 style={{ fontSize: 15, fontWeight: 700, marginTop: 16, marginBottom: 6, color: 'var(--text-primary)' }} {...p} />,
+                      h3: ({ node, ...p }) => <h3 style={{ fontSize: 13.5, fontWeight: 600, marginTop: 12, marginBottom: 4, color: 'var(--accent-dark)' }} {...p} />,
+                      // Code
+                      code: ({ node, inline, ...p }) => inline
+                        ? <code style={{ fontFamily: 'monospace', fontSize: 12.5, background: 'rgba(99,102,241,0.08)', padding: '2px 5px', borderRadius: 4, color: 'var(--accent-dark)' }} {...p} />
+                        : <pre style={{ fontFamily: 'monospace', fontSize: 12.5, background: '#1e1e2e', color: '#cdd6f4', padding: '12px 14px', borderRadius: 8, overflowX: 'auto', marginTop: 8, marginBottom: 8, lineHeight: 1.6 }}><code {...p} /></pre>,
+                      // Lists
+                      ul: ({ node, ...p }) => <ul style={{ paddingLeft: 20, marginTop: 6, marginBottom: 6, display: 'flex', flexDirection: 'column', gap: 4 }} {...p} />,
+                      ol: ({ node, ...p }) => <ol style={{ paddingLeft: 20, marginTop: 6, marginBottom: 6, display: 'flex', flexDirection: 'column', gap: 4 }} {...p} />,
+                      li: ({ node, ...p }) => <li style={{ color: 'var(--text-secondary)', fontSize: 13.5, lineHeight: 1.6 }} {...p} />,
+                      // Paragraph
+                      p:  ({ node, ...p }) => <p style={{ marginBottom: 8, lineHeight: 1.7, color: 'var(--text-secondary)', fontSize: 13.5 }} {...p} />,
+                      // Strong / em
+                      strong: ({ node, ...p }) => <strong style={{ fontWeight: 600, color: 'var(--text-primary)' }} {...p} />,
+                      em:     ({ node, ...p }) => <em style={{ color: 'var(--text-muted)', fontStyle: 'italic' }} {...p} />,
+                    }}
+                  >{msg.content}</ReactMarkdown>
                     {msg.streaming && (
                       <span style={{ display: 'inline-block', width: 8, height: 14, background: 'var(--accent)', borderRadius: 2, marginLeft: 3, verticalAlign: 'text-bottom', animation: 'typingBounce 1s ease-in-out infinite' }} />
                     )}
@@ -857,7 +886,7 @@ function ChatTab({ messages, setMessages, initialAnalysis, availableModels }) {
             <Send size={15} />
           </button>
         </div>
-        <p className="chat-helper-text">Enter to send · Shift+Enter for new line · powered by {currentModelLabel}</p>
+        <p className="chat-helper-text">Enter to send · Shift+Enter for new line</p>
       </div>
     </div>
   );
